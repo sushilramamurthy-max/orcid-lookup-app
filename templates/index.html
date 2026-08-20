@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ORCID Lookup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+  <div class="ledger-spine"></div>
+
+  <main class="page">
+    <header class="masthead">
+      <div class="masthead-index">No. 0000&ndash;0003</div>
+      <h1>ORCID Lookup</h1>
+      <p class="masthead-sub">Search the public registry by name, email, or affiliation</p>
+    </header>
+
+    {% if not credentials_present %}
+    <div class="notice">
+      <strong>Running in CrossRef-only mode.</strong> ORCID credentials aren't set, so results
+      come only from CrossRef publication records that already have a publisher-supplied ORCID
+      attached — real data, just a narrower net than full ORCID registry search. To widen
+      coverage later, add ORCID_CLIENT_ID / ORCID_CLIENT_SECRET (free at
+      <a href="https://orcid.org/developer-tools" target="_blank" rel="noopener">orcid.org/developer-tools</a>)
+      as environment variables and restart the app.
+    </div>
+    {% endif %}
+
+    <form id="search-form" class="card-form" autocomplete="off">
+      <div class="field">
+        <label for="given_name">First name</label>
+        <input type="text" id="given_name" name="given_name" placeholder="Marie">
+      </div>
+      <div class="field">
+        <label for="family_name">Last name</label>
+        <input type="text" id="family_name" name="family_name" placeholder="Curie">
+      </div>
+      <div class="field">
+        <label for="email">Email <span class="optional">(optional)</span></label>
+        <input type="email" id="email" name="email" placeholder="m.curie@example.edu">
+      </div>
+      <div class="field">
+        <label for="affiliation">Affiliation / Institution</label>
+        <input type="text" id="affiliation" name="affiliation" placeholder="University of Paris">
+      </div>
+      <button type="submit" id="search-btn">Search ORCID registry</button>
+    </form>
+
+    <p class="hint">
+      Each candidate is cross-checked against CrossRef's publication records in
+      addition to the ORCID registry, and scored by how much independent
+      evidence supports it. Most email addresses on ORCID records are private
+      and won't match unless the person has made theirs public. Review the
+      evidence and use "This is me / Not me" to confirm before citing.
+    </p>
+
+    <section id="status" class="status" aria-live="polite"></section>
+
+    <section id="results" class="results"></section>
+  </main>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
