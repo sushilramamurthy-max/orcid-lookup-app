@@ -52,6 +52,12 @@ def _init_db():
                 created_at REAL NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS proof_submissions (
+                article_id TEXT PRIMARY KEY,
+                submitted_at REAL NOT NULL
+            )
+        """)
         conn.commit()
 
 
@@ -173,14 +179,37 @@ def list_comments(article_id: str, author_name: str) -> list:
 
 
 def reset_all() -> None:
-    """Wipes every confirmation, flag, and comment. Used by the demo
-    'Reset' control -- not gated by anything beyond the UI's confirm step,
-    since this app has no auth/user model. Don't expose this endpoint
-    publicly for a real deployment without adding access control."""
+    """Wipes every confirmation, flag, comment, and submission record.
+    Used by the demo 'Reset' control -- not gated by anything beyond the
+    UI's confirm step, since this app has no auth/user model. Don't expose
+    this endpoint publicly for a real deployment without adding access
+    control."""
     with _connect() as conn:
         conn.execute("DELETE FROM author_records")
         conn.execute("DELETE FROM author_comments")
+        conn.execute("DELETE FROM proof_submissions")
         conn.commit()
+
+
+def mark_submitted(article_id: str) -> dict:
+    if not article_id:
+        raise ValueError("article_id is required.")
+    row = {"article_id": article_id, "submitted_at": time.time()}
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO proof_submissions (article_id, submitted_at) VALUES (:article_id, :submitted_at) "
+            "ON CONFLICT(article_id) DO UPDATE SET submitted_at = :submitted_at",
+            row,
+        )
+        conn.commit()
+    return row
+
+
+def get_submission(article_id: str) -> Optional[dict]:
+    with _connect() as conn:
+        cur = conn.execute("SELECT * FROM proof_submissions WHERE article_id = ?", (article_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
 
 
 _init_db()

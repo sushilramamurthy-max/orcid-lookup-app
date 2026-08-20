@@ -27,7 +27,7 @@ from orcid_core import credentials_present
 from validator import build_candidates
 from records import (
     record_confirmation, record_flag, list_records, InvalidOrcidError,
-    add_comment, list_comments, reset_all,
+    add_comment, list_comments, reset_all, mark_submitted, get_submission,
 )
 from sample_articles import ARTICLES
 
@@ -64,7 +64,13 @@ def api_articles():
                 "orcid": rec["orcid"] if rec else None,
                 "source": rec["source"] if rec else None,
             })
-        articles_out.append({**art, "authors": authors_out})
+        submission = get_submission(art["doi"])
+        articles_out.append({
+            **art,
+            "authors": authors_out,
+            "submitted": submission is not None,
+            "submitted_at": submission["submitted_at"] if submission else None,
+        })
 
     return jsonify({"articles": articles_out})
 
@@ -169,6 +175,32 @@ def api_get_comments():
     if not article_id or not author_name:
         return jsonify({"error": "article_id and author_name are required."}), 400
     return jsonify({"comments": list_comments(article_id, author_name)})
+
+
+@app.route("/api/submit", methods=["POST"])
+def api_submit():
+    """Marks a proof as submitted, once every author on it has been
+    confirmed or flagged. The server re-checks this rather than trusting
+    the client, since the client's article data can be stale."""
+    data = request.get_json(silent=True) or {}
+    article_id = (data.get("article_id") or "").strip()
+    if not article_id:
+        return jsonify({"error": "article_id is required."}), 400
+
+    article = next((a for a in ARTICLES if a["doi"] == article_id), None)
+    if not article:
+        return jsonify({"error": "Unknown article."}), 404
+
+    resolved_names = {r["author_name"] for r in list_records(article_id)}
+    all_names = {f"{au['given_name']} {au['family_name']}".strip() for au in article["authors"]}
+    unresolved = all_names - resolved_names
+    if unresolved:
+        return jsonify({
+            "error": f"Not all authors are resolved yet: {', '.join(sorted(unresolved))}"
+        }), 400
+
+    row = mark_submitted(article_id)
+    return jsonify({"submission": row})
 
 
 @app.route("/api/reset", methods=["POST"])

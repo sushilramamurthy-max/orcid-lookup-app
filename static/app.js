@@ -296,6 +296,94 @@ function progressFor(article) {
   return { key: "partial", label: `${resolved}/${total}` };
 }
 
+function renderProgressPanel(article) {
+  const total = article.authors.length;
+  const confirmedCount = article.authors.filter(a => a.status === "confirmed").length;
+  const flaggedCount = article.authors.filter(a => a.status === "flagged").length;
+  const resolved = confirmedCount + flaggedCount;
+  const confirmedPct = total ? (confirmedCount / total) * 100 : 0;
+  const flaggedPct = total ? (flaggedCount / total) * 100 : 0;
+
+  let note;
+  if (resolved === 0) {
+    note = "Find each author's ORCID below to get started.";
+  } else if (resolved < total) {
+    note = `${total - resolved} author${total - resolved === 1 ? "" : "s"} still need${total - resolved === 1 ? "s" : ""} an ORCID confirmed before you can submit.`;
+  } else if (flaggedCount > 0) {
+    note = `All authors are resolved. ${flaggedCount} ${flaggedCount === 1 ? "was" : "were"} flagged for manual production review — you can still submit.`;
+  } else {
+    note = "Every author is confirmed. You're ready to submit.";
+  }
+
+  return `
+    <div class="progress-panel-top">
+      <span class="progress-panel-label">Proofing progress</span>
+      <span class="progress-panel-count">${resolved}/${total} authors resolved</span>
+    </div>
+    <div class="progress-bar-track">
+      <div class="progress-bar-fill confirmed-fill" style="width:${confirmedPct}%"></div>
+      <div class="progress-bar-fill flagged-fill" style="width:${flaggedPct}%"></div>
+    </div>
+    <p class="progress-panel-note">${note}</p>
+  `;
+}
+
+function renderSubmitPanel(article) {
+  const total = article.authors.length;
+  const resolved = article.authors.filter(a => a.status !== "pending").length;
+  const allResolved = total > 0 && resolved === total;
+
+  if (article.submitted) {
+    return `
+      <div class="submit-success">
+        <span class="badge-icon">✓</span>
+        <span>Proof submitted — every author's ORCID is on record for production.</span>
+      </div>
+    `;
+  }
+
+  if (allResolved) {
+    return `
+      <button type="button" class="submit-cta ready" id="submit-proof-btn">Submit proof</button>
+      <p class="submit-note">This locks in every ORCID above and marks the proof ready for production.</p>
+    `;
+  }
+
+  return `
+    <button type="button" class="submit-cta disabled" disabled>Submit proof</button>
+    <p class="submit-note">Confirm or flag every author above to unlock submission.</p>
+  `;
+}
+
+function refreshArticlePanels(article) {
+  document.getElementById("progress-panel").innerHTML = renderProgressPanel(article);
+  const submitPanel = document.getElementById("submit-panel");
+  submitPanel.innerHTML = renderSubmitPanel(article);
+  const submitBtn = document.getElementById("submit-proof-btn");
+  if (submitBtn) {
+    submitBtn.addEventListener("click", async () => {
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Submitting…";
+      try {
+        const resp = await fetch("/api/submit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ article_id: article.doi }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || "Couldn't submit.");
+        article.submitted = true;
+        refreshArticlePanels(article);
+        refreshSidebarProgress();
+      } catch (err) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Submit proof";
+        submitPanel.insertAdjacentHTML("beforeend", `<p class="submit-note" style="color:var(--low)">${escapeHtml(err.message)}</p>`);
+      }
+    });
+  }
+}
+
 function renderSidebar() {
   articleListEl.innerHTML = articlesCache.map(article => {
     const p = progressFor(article);
@@ -303,7 +391,9 @@ function renderSidebar() {
       <button type="button" class="sidebar-item" data-article-id="${article.id}">
         <span class="sidebar-item-title">${escapeHtml(article.title)}</span>
         <span class="sidebar-item-sub">${escapeHtml(article.journal)}</span>
-        <span class="sidebar-progress ${p.key}">${p.label} resolved</span>
+        ${article.submitted
+          ? `<span class="sidebar-progress done">✓ Submitted</span>`
+          : `<span class="sidebar-progress ${p.key}">${p.label} resolved</span>`}
       </button>
     `;
   }).join("");
@@ -349,6 +439,7 @@ function renderAuthorRow(article, author) {
         <span class="byline-name">${escapeHtml(author.full_name)}</span>
         ${affilHtml}
       </p>
+      <p class="author-hint">We'll check ORCID and CrossRef for a record matching this author.</p>
       <div class="author-actions">
         <button type="button" class="find-orcid-btn" data-author="${escapeHtml(author.full_name)}">Find ORCID</button>
       </div>
@@ -474,6 +565,8 @@ function showArticle(articleId) {
   document.getElementById("article-title").textContent = article.title;
   document.getElementById("article-doi").textContent = article.doi;
 
+  refreshArticlePanels(article);
+
   const container = document.getElementById("author-rows");
   container.innerHTML = article.authors.map(au => renderAuthorRow(article, au)).join("");
 
@@ -505,6 +598,7 @@ function showArticle(articleId) {
               .find(r => r.dataset.authorName === author.full_name);
             if (newRow) wireDiscussToggle(newRow, article, author);
             refreshSidebarProgress();
+            refreshArticlePanels(article);
           },
         });
         button.closest(".author-actions").remove();

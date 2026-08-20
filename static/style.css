@@ -427,6 +427,60 @@ h1 {
 }
 .article-hint { text-align: left; margin: 1rem 0 1.5rem; }
 
+.progress-panel {
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+.progress-panel-top {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 0.5rem;
+}
+.progress-panel-label { font-size: 0.85rem; font-weight: 700; color: var(--ink); }
+.progress-panel-count { font-size: 0.8rem; color: var(--muted); }
+.progress-bar-track {
+  height: 8px; border-radius: 999px; background: var(--hairline); overflow: hidden;
+  display: flex;
+}
+.progress-bar-fill {
+  height: 100%; transition: width 0.4s var(--ease);
+}
+.progress-bar-fill.confirmed-fill { background: var(--high); }
+.progress-bar-fill.flagged-fill { background: var(--medium); }
+.progress-panel-note { font-size: 0.78rem; color: var(--muted); margin: 0.6rem 0 0; line-height: 1.5; }
+
+.submit-panel { margin-top: 1.5rem; }
+.submit-cta {
+  width: 100%;
+  font-family: inherit; font-size: 0.95rem; font-weight: 700;
+  padding: 0.9rem 1.2rem; border-radius: 14px;
+  border: none; cursor: pointer;
+  transition: all 0.2s var(--ease);
+}
+.submit-cta.ready { background: var(--ink); color: #fff; }
+.submit-cta.ready:hover { background: #262629; }
+.submit-cta.disabled {
+  background: var(--surface); color: var(--faint);
+  cursor: not-allowed; border: 1.5px dashed var(--hairline);
+}
+.submit-cta:disabled { opacity: 0.7; }
+.submit-note {
+  text-align: center; font-size: 0.8rem; color: var(--muted);
+  margin: 0.7rem 0 0; line-height: 1.5;
+}
+.submit-success {
+  display: flex; align-items: center; gap: 0.6rem;
+  background: var(--high-soft); color: var(--high);
+  border-radius: 14px; padding: 1rem 1.2rem;
+  font-size: 0.9rem; font-weight: 700;
+}
+.submit-success .badge-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 50%;
+  background: var(--high); color: #fff; font-size: 0.75rem; flex-shrink: 0;
+}
+
 .author-row {
   background: var(--surface);
   border-radius: 18px;
@@ -467,6 +521,9 @@ h1 {
 }
 
 .author-actions { margin-top: 0.6rem; }
+.author-hint {
+  font-size: 0.8rem; color: var(--faint); margin: 0.3rem 0 0.5rem;
+}
 .find-orcid-btn {
   font-family: inherit; font-size: 0.85rem; font-weight: 600;
   padding: 0.5rem 0.95rem; border-radius: 999px;
