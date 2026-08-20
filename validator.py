@@ -11,8 +11,19 @@ candidates for a corresponding author to review:
 A candidate's confidence score is built entirely from concrete, visible
 evidence -- never asserted as fact -- so the actual author can check each
 signal and confirm or reject the match themselves.
+
+Performance notes:
+  - ORCID and CrossRef are independent network calls, run concurrently.
+  - Each candidate's "recent works" ORCID lookup is also independent of
+    the others, so those run concurrently too instead of one-by-one.
+  - Identical searches (same name/email/affiliation) are cached in memory
+    for a few minutes, since repeat lookups are common during a demo or
+    when someone re-checks a result -- avoids redundant API round-trips.
 """
 
+import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 import orcid_core
@@ -33,6 +44,11 @@ CONFIDENCE_BANDS = [
     (25, "possible", "Possible match"),
     (0, "weak", "Weak match"),
 ]
+
+CACHE_TTL_SECONDS = 300  # 5 minutes -- long enough to help repeat/demo lookups,
+                          # short enough that results stay reasonably fresh
+_cache_lock = threading.Lock()
+_cache: dict = {}
 
 
 def _confidence_label(score_pct: int):
@@ -55,6 +71,11 @@ def _affiliation_matches(affiliation: str, institutions: list, crossref_affil_te
     return False
 
 
+def _cache_key(given_name, family_name, email, affiliation) -> tuple:
+    norm = lambda s: (s or "").strip().lower()
+    return (norm(given_name), norm(family_name), norm(email), norm(affiliation))
+
+
 def build_candidates(given_name: str, family_name: str, email: str = "",
                       affiliation: str = "", mailto: Optional[str] = None) -> dict:
     """
@@ -74,21 +95,33 @@ def build_candidates(given_name: str, family_name: str, email: str = "",
         a publisher-supplied ORCID attached for a matching name. Real
         results, just without the broader ORCID name-search net.
     """
-    orcid_unavailable = False
-    try:
-        orcid_hits = orcid_core.search_people(given_name, family_name, email, affiliation)
-    except orcid_core.OrcidConfigError:
-        orcid_hits = []
-        orcid_unavailable = True
+    key = _cache_key(given_name, family_name, email, affiliation)
+    now = time.time()
+    with _cache_lock:
+        cached = _cache.get(key)
+        if cached and now - cached["ts"] < CACHE_TTL_SECONDS:
+            return cached["result"]
 
+    # ORCID registry search and CrossRef search are independent network
+    # calls -- run them concurrently rather than waiting on one then the
+    # other, roughly halving wall-clock time for the common case.
+    orcid_unavailable = False
+    orcid_hits = []
     crossref_works = []
     crossref_error = None
-    try:
-        crossref_works = crossref_core.search_author_works(
-            given_name, family_name, affiliation, mailto=mailto
-        )
-    except Exception as e:  # CrossRef being unavailable shouldn't break ORCID-only results
-        crossref_error = f"CrossRef cross-check unavailable: {e}"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        orcid_future = pool.submit(orcid_core.search_people, given_name, family_name, email, affiliation)
+        crossref_future = pool.submit(crossref_core.search_author_works, given_name, family_name, affiliation, mailto=mailto)
+
+        try:
+            orcid_hits = orcid_future.result()
+        except orcid_core.OrcidConfigError:
+            orcid_unavailable = True
+        try:
+            crossref_works = crossref_future.result()
+        except Exception as e:  # CrossRef being unavailable shouldn't break ORCID-only results
+            crossref_error = f"CrossRef cross-check unavailable: {e}"
 
     crossref_by_orcid = {}
     for w in crossref_works:
@@ -96,6 +129,23 @@ def build_candidates(given_name: str, family_name: str, email: str = "",
             crossref_by_orcid.setdefault(w["matched_orcid"], []).append(w)
 
     total_orcid_hits = len(orcid_hits)
+
+    # Recent-works lookups (one ORCID API call per candidate) are also
+    # independent of each other -- fetch them all concurrently instead of
+    # in a loop, so N candidates cost roughly the time of one call, not N.
+    recent_works_by_orcid = {}
+    if orcid_hits:
+        with ThreadPoolExecutor(max_workers=min(8, max(1, len(orcid_hits)))) as pool:
+            future_to_id = {
+                pool.submit(orcid_core.get_recent_works, hit["orcid_id"], 3): hit["orcid_id"]
+                for hit in orcid_hits
+            }
+            for future, orcid_id in future_to_id.items():
+                try:
+                    recent_works_by_orcid[orcid_id] = future.result()
+                except orcid_core.OrcidConfigError:
+                    recent_works_by_orcid[orcid_id] = []
+
     candidates = []
 
     for hit in orcid_hits:
@@ -138,12 +188,6 @@ def build_candidates(given_name: str, family_name: str, email: str = "",
         score_pct = min(100, round(score / 10 * 100))
         confidence_key, confidence_label = _confidence_label(score_pct)
 
-        recent_works = []
-        try:
-            recent_works = orcid_core.get_recent_works(hit["orcid_id"], limit=3)
-        except orcid_core.OrcidConfigError:
-            pass
-
         candidates.append({
             "orcid_id": hit["orcid_id"],
             "orcid_url": hit["orcid_url"],
@@ -158,7 +202,7 @@ def build_candidates(given_name: str, family_name: str, email: str = "",
                 {"title": w["title"], "doi": w["doi"], "journal": w["journal"], "year": w["year"]}
                 for w in supporting_works[:3]
             ],
-            "recent_works": recent_works,
+            "recent_works": recent_works_by_orcid.get(hit["orcid_id"], []),
         })
 
     # CrossRef-only fallback: build candidates straight from CrossRef works
@@ -208,4 +252,13 @@ def build_candidates(given_name: str, family_name: str, email: str = "",
             })
 
     candidates.sort(key=lambda c: c["score_pct"], reverse=True)
-    return {"candidates": candidates, "crossref_error": crossref_error, "orcid_unavailable": orcid_unavailable}
+    result = {"candidates": candidates, "crossref_error": crossref_error, "orcid_unavailable": orcid_unavailable}
+
+    with _cache_lock:
+        _cache[key] = {"ts": now, "result": result}
+        # Simple cap so this can't grow unbounded over a long-running process
+        if len(_cache) > 500:
+            oldest_key = min(_cache, key=lambda k: _cache[k]["ts"])
+            del _cache[oldest_key]
+
+    return result
