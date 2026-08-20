@@ -25,6 +25,8 @@ from flask import Flask, jsonify, render_template, request
 
 from orcid_core import credentials_present
 from validator import build_candidates
+from records import record_confirmation, record_flag, list_records, InvalidOrcidError
+from sample_articles import ARTICLES
 
 app = Flask(__name__)
 
@@ -32,6 +34,36 @@ app = Flask(__name__)
 @app.route("/")
 def index():
     return render_template("index.html", credentials_present=credentials_present())
+
+
+@app.route("/api/articles", methods=["GET"])
+def api_articles():
+    """
+    Sample articles for the sidebar, with each author's live status
+    (pending / confirmed / flagged) merged in from records.py -- so
+    reloading the page still shows prior progress on that article.
+    """
+    articles_out = []
+    for art in ARTICLES:
+        records_for_article = list_records(art["doi"])
+        latest_by_name = {}
+        for r in records_for_article:  # already ordered newest-first
+            latest_by_name.setdefault(r["author_name"], r)
+
+        authors_out = []
+        for au in art["authors"]:
+            full_name = f"{au['given_name']} {au['family_name']}".strip()
+            rec = latest_by_name.get(full_name)
+            authors_out.append({
+                **au,
+                "full_name": full_name,
+                "status": rec["status"] if rec else "pending",
+                "orcid": rec["orcid"] if rec else None,
+                "source": rec["source"] if rec else None,
+            })
+        articles_out.append({**art, "authors": authors_out})
+
+    return jsonify({"articles": articles_out})
 
 
 @app.route("/api/search", methods=["POST"])
@@ -56,6 +88,53 @@ def api_search():
         "crossref_error": result["crossref_error"],
         "orcid_unavailable": result["orcid_unavailable"],
     })
+
+
+@app.route("/api/confirm", methods=["POST"])
+def api_confirm():
+    """'This is me' -- records the ORCID as confirmed for this article/author."""
+    data = request.get_json(silent=True) or {}
+    author_name = (data.get("author_name") or "").strip()
+    orcid = (data.get("orcid") or "").strip()
+    article_id = (data.get("article_id") or "").strip()
+    source = (data.get("source") or "").strip()
+
+    if not author_name or not orcid:
+        return jsonify({"error": "author_name and orcid are required."}), 400
+
+    try:
+        row = record_confirmation(article_id, author_name, orcid, source)
+    except InvalidOrcidError as e:
+        return jsonify({"error": str(e)}), 400
+
+    return jsonify({"record": row})
+
+
+@app.route("/api/flag", methods=["POST"])
+def api_flag():
+    """'Not me' + manual ORCID entry -- flags this for production review."""
+    data = request.get_json(silent=True) or {}
+    author_name = (data.get("author_name") or "").strip()
+    orcid = (data.get("orcid") or "").strip()
+    article_id = (data.get("article_id") or "").strip()
+    note = (data.get("note") or "").strip()
+
+    if not author_name or not orcid:
+        return jsonify({"error": "author_name and orcid are required."}), 400
+
+    try:
+        row = record_flag(article_id, author_name, orcid, note)
+    except InvalidOrcidError as e:
+        return jsonify({"error": str(e)}), 400
+
+    return jsonify({"record": row})
+
+
+@app.route("/api/records", methods=["GET"])
+def api_records():
+    """Lets a production user pull up everything confirmed/flagged for an article."""
+    article_id = (request.args.get("article_id") or "").strip() or None
+    return jsonify({"records": list_records(article_id)})
 
 
 if __name__ == "__main__":

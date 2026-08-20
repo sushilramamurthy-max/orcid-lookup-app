@@ -87,20 +87,50 @@ Every candidate also shows:
 - **CrossRef corroboration** -- the specific paper(s) that back the match
 - **Recent works on this ORCID record** -- so the actual author can
   visually recognize their own papers
-- **This is me / Not me** buttons -- for the corresponding author to make
-  the final call themselves (this is a UI-only toggle in the prototype;
-  wire it to your own storage if you need to persist decisions)
+- **This is me / Not me** -- for the corresponding author (or the
+  production team on their behalf) to make the final call
 
 Even a "Confirmed" result is evidence-based, not a guarantee -- always
 leave the final call to the person being identified.
 
+## Confirming and flagging results
+
+Clicking a validate button does more than change the display -- it's saved:
+
+- **"This is me"** records the ORCID as confirmed, tagged with which
+  source backed the match (CrossRef or the ORCID registry). The card
+  updates to a confirmed badge showing that source.
+- **"Not me"** opens an inline field to enter the correct ORCID iD by
+  hand. On submit, it's validated for format (`0000-0001-5250-9122`
+  shape) and saved with status `flagged` -- signaling to your production
+  team that this one needs a manual check rather than being auto-accepted.
+
+Records are stored in a local SQLite file (`records.db`, created
+automatically) with an optional **Article ID / DOI** field on the search
+form to group confirmations by article. Pull them back out via:
+
+```
+GET /api/records?article_id=10.1038/s41586-023-01234-x
+```
+
+or omit `article_id` to list everything.
+
+**Note on Render's free tier:** its disk is ephemeral and resets on every
+redeploy, so `records.db` will be wiped each time you push new code. Fine
+for a demo; for real production use, either point `RECORDS_DB_PATH` (an
+environment variable this app reads) at a
+[persistent disk](https://render.com/docs/disks) on a paid plan, or swap
+`records.py` for a hosted database.
+
 ## Files
 
-- `app.py` -- Flask routes: serves the form, exposes `POST /api/search`.
+- `app.py` -- Flask routes: serves the form, exposes `POST /api/search`,
+  `POST /api/confirm`, `POST /api/flag`, and `GET /api/records`.
 - `orcid_core.py` -- ORCID OAuth token handling, registry search, and
   fetching a candidate's own recent works.
 - `crossref_core.py` -- searches CrossRef for works by a given name/
   affiliation, used as an independent cross-check source.
 - `validator.py` -- combines both sources into scored, evidence-backed
-  candidates.
+  candidates, with concurrent API calls and short-lived caching for speed.
+- `records.py` -- SQLite storage for confirmed/flagged author records.
 - `templates/index.html`, `static/style.css`, `static/app.js` -- the UI.

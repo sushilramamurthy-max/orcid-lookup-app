@@ -7,45 +7,85 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <main class="page">
-    <header class="hero">
-      <h1>Find the right ORCID.</h1>
-      <p class="hero-sub">Cross-checked against real publication records, with the evidence to prove it.</p>
-    </header>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="sidebar-title">Articles in proofing</div>
+      <button type="button" class="sidebar-item active" id="custom-search-item">
+        <span class="sidebar-item-title">＋ Custom search</span>
+        <span class="sidebar-item-sub">Look up any author by name</span>
+      </button>
+      <div class="sidebar-divider">Sample articles</div>
+      <div id="article-list"></div>
+    </aside>
 
-    {% if not credentials_present %}
-    <div class="notice">
-      Running in CrossRef-only mode — real results, from publisher-verified records only.
-      <a href="https://orcid.org/developer-tools" target="_blank" rel="noopener">Add ORCID credentials</a>
-      to widen the search.
-    </div>
-    {% endif %}
+    <main class="page">
+      <div id="custom-view">
+        <header class="hero">
+          <span class="eyebrow">For journal editorial &amp; production teams</span>
+          <h1>Find the right ORCID.</h1>
+          <p class="hero-sub">Confirm a corresponding author's identity before publication — cross-checked against real records, with the evidence to prove it, not just a name guess.</p>
+        </header>
 
-    <form id="search-form" class="card-form" autocomplete="off">
-      <div class="field">
-        <label for="given_name">First name</label>
-        <input type="text" id="given_name" name="given_name" placeholder="Marie">
-      </div>
-      <div class="field">
-        <label for="family_name">Last name</label>
-        <input type="text" id="family_name" name="family_name" placeholder="Curie">
-      </div>
-      <div class="field">
-        <label for="email">Email <span class="optional">(optional)</span></label>
-        <input type="email" id="email" name="email" placeholder="m.curie@example.edu">
-      </div>
-      <div class="field">
-        <label for="affiliation">Affiliation</label>
-        <input type="text" id="affiliation" name="affiliation" placeholder="University of Paris">
-      </div>
-      <button type="submit" id="search-btn">Search</button>
-    </form>
+        {% if not credentials_present %}
+        <div class="notice">
+          Running in CrossRef-only mode — real results, from publisher-verified records only.
+          <a href="https://orcid.org/developer-tools" target="_blank" rel="noopener">Add ORCID credentials</a>
+          to widen the search.
+        </div>
+        {% endif %}
 
-    <p class="hint">Most ORCID emails are private — review the evidence and confirm the match yourself.</p>
+        <form id="search-form" class="card-form" autocomplete="off">
+          <div class="field field-full">
+            <label for="article_id">Article ID / DOI <span class="optional">(optional — links results to this article)</span></label>
+            <input type="text" id="article_id" name="article_id" placeholder="10.1038/s41586-023-01234-x">
+          </div>
+          <div class="field">
+            <label for="given_name">First name</label>
+            <input type="text" id="given_name" name="given_name" placeholder="Marie">
+          </div>
+          <div class="field">
+            <label for="family_name">Last name</label>
+            <input type="text" id="family_name" name="family_name" placeholder="Curie">
+          </div>
+          <div class="field">
+            <label for="email">Email <span class="optional">(optional)</span></label>
+            <input type="email" id="email" name="email" placeholder="m.curie@example.edu">
+          </div>
+          <div class="field">
+            <label for="affiliation">Affiliation</label>
+            <input type="text" id="affiliation" name="affiliation" placeholder="University of Paris">
+          </div>
+          <button type="submit" id="search-btn">Search</button>
+        </form>
 
-    <section id="status" class="status" aria-live="polite"></section>
-    <section id="results" class="results"></section>
-  </main>
+        <p class="hint">Most ORCID emails are private — review the evidence and confirm the match yourself.</p>
+
+        <section id="status" class="status" aria-live="polite"></section>
+        <section id="results" class="results">
+          <div class="onboarding" id="onboarding">
+            <ol class="onboarding-steps">
+              <li><strong>Search</strong> — enter the author's name from the manuscript. Email and affiliation sharpen the result but aren't required.</li>
+              <li><strong>Review</strong> — each candidate shows a confidence score backed by real evidence: a matching CrossRef record, an affiliation match, or a matching email.</li>
+              <li><strong>Confirm</strong> — mark "This is me / Not me" once you or the author has checked it. The final call is always yours, not the algorithm's.</li>
+            </ol>
+          </div>
+        </section>
+      </div>
+
+      <div id="article-view" hidden>
+        <header class="article-header">
+          <span class="eyebrow" id="article-journal"></span>
+          <h1 id="article-title"></h1>
+          <p class="hero-sub" id="article-doi"></p>
+        </header>
+        <p class="hint article-hint">
+          Each byline below reflects the manuscript as submitted. Confirmed and flagged
+          ORCID iDs appear as tracked insertions, exactly as they'll read in the proof.
+        </p>
+        <div id="author-rows"></div>
+      </div>
+    </main>
+  </div>
 
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
