@@ -25,7 +25,10 @@ from flask import Flask, jsonify, render_template, request
 
 from orcid_core import credentials_present
 from validator import build_candidates
-from records import record_confirmation, record_flag, list_records, InvalidOrcidError
+from records import (
+    record_confirmation, record_flag, list_records, InvalidOrcidError,
+    add_comment, list_comments, reset_all,
+)
 from sample_articles import ARTICLES
 
 app = Flask(__name__)
@@ -135,6 +138,47 @@ def api_records():
     """Lets a production user pull up everything confirmed/flagged for an article."""
     article_id = (request.args.get("article_id") or "").strip() or None
     return jsonify({"records": list_records(article_id)})
+
+
+@app.route("/api/comment", methods=["POST"])
+def api_add_comment():
+    """Adds a message to an author's discussion thread -- lets a
+    corresponding author ask a co-author to double-check a match, or a
+    co-author reply, without either needing an account."""
+    data = request.get_json(silent=True) or {}
+    article_id = (data.get("article_id") or "").strip()
+    author_name = (data.get("author_name") or "").strip()
+    role = (data.get("role") or "").strip()
+    body = (data.get("body") or "").strip()
+
+    if not author_name:
+        return jsonify({"error": "author_name is required."}), 400
+
+    try:
+        row = add_comment(article_id, author_name, role, body)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    return jsonify({"comment": row})
+
+
+@app.route("/api/comments", methods=["GET"])
+def api_get_comments():
+    article_id = (request.args.get("article_id") or "").strip()
+    author_name = (request.args.get("author_name") or "").strip()
+    if not article_id or not author_name:
+        return jsonify({"error": "article_id and author_name are required."}), 400
+    return jsonify({"comments": list_comments(article_id, author_name)})
+
+
+@app.route("/api/reset", methods=["POST"])
+def api_reset():
+    """Clears every confirmation, flag, and comment -- for repeatable demos.
+    No auth gate: this app has no user model, so anyone with the URL can
+    reset it. Don't wire this button up in a real production deployment
+    without adding access control in front of it."""
+    reset_all()
+    return jsonify({"reset": True})
 
 
 if __name__ == "__main__":

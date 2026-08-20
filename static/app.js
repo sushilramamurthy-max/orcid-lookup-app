@@ -322,6 +322,10 @@ function setActiveSidebarItem(articleId) {
 
 function renderAuthorRow(article, author) {
   const affilHtml = `<span class="byline-affil">${escapeHtml(author.affiliation || "")}</span>`;
+  const discussHtml = `
+    <button type="button" class="discuss-toggle" data-author="${escapeHtml(author.full_name)}">💬 Discuss with co-author</button>
+    <div class="discuss-thread" hidden></div>
+  `;
 
   if (author.status === "confirmed" || author.status === "flagged") {
     const metaText = author.status === "confirmed"
@@ -334,6 +338,7 @@ function renderAuthorRow(article, author) {
           ${affilHtml}
         </p>
         <span class="track-meta">${metaText}</span>
+        ${discussHtml}
       </div>
     `;
   }
@@ -348,8 +353,113 @@ function renderAuthorRow(article, author) {
         <button type="button" class="find-orcid-btn" data-author="${escapeHtml(author.full_name)}">Find ORCID</button>
       </div>
       <div class="author-results"></div>
+      ${discussHtml}
     </div>
   `;
+}
+
+// ---------- Discussion thread ----------
+
+function formatRelativeTime(unixSeconds) {
+  const diffMs = Date.now() - unixSeconds * 1000;
+  const mins = Math.round(diffMs / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return new Date(unixSeconds * 1000).toLocaleDateString();
+}
+
+const ROLE_LABELS = { corresponding: "Corresponding author", "co-author": "Co-author", other: "Other" };
+
+function renderDiscussThread(comments) {
+  const messages = comments.length
+    ? `<div class="discuss-messages">${comments.map(c => `
+        <div class="discuss-message">
+          <div class="discuss-message-meta">
+            <span class="discuss-role-tag ${c.role}">${ROLE_LABELS[c.role] || "Other"}</span>
+            <span class="discuss-time">${formatRelativeTime(c.created_at)}</span>
+          </div>
+          <div>${escapeHtml(c.body)}</div>
+        </div>
+      `).join("")}</div>`
+    : `<p class="discuss-empty">No messages yet. Ask a co-author to double-check if you're unsure.</p>`;
+
+  return `
+    ${messages}
+    <form class="discuss-form" autocomplete="off">
+      <div class="discuss-form-row">
+        <select class="discuss-role-select">
+          <option value="corresponding">Corresponding author</option>
+          <option value="co-author">Co-author</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <textarea class="discuss-textarea" placeholder="e.g. Can you confirm this ORCID is yours before I submit?"></textarea>
+      <button type="submit" class="discuss-submit">Post</button>
+    </form>
+  `;
+}
+
+function wireDiscussToggle(row, article, author) {
+  const toggle = row.querySelector(".discuss-toggle");
+  const threadEl = row.querySelector(".discuss-thread");
+  if (!toggle || !threadEl) return;
+
+  let loaded = false;
+
+  toggle.addEventListener("click", async () => {
+    const opening = threadEl.hidden;
+    threadEl.hidden = !opening;
+    if (!opening || loaded) return;
+
+    threadEl.innerHTML = `<p class="discuss-empty">Loading…</p>`;
+    try {
+      const resp = await fetch(`/api/comments?article_id=${encodeURIComponent(article.doi)}&author_name=${encodeURIComponent(author.full_name)}`);
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || "Couldn't load discussion.");
+      loaded = true;
+      threadEl.innerHTML = renderDiscussThread(data.comments || []);
+      wireDiscussForm(threadEl, article, author);
+    } catch (err) {
+      threadEl.innerHTML = `<div class="manual-entry-error">${escapeHtml(err.message)}</div>`;
+    }
+  });
+}
+
+function wireDiscussForm(threadEl, article, author) {
+  const formEl = threadEl.querySelector(".discuss-form");
+  const textarea = threadEl.querySelector(".discuss-textarea");
+  const roleSelect = threadEl.querySelector(".discuss-role-select");
+  const submitBtn = threadEl.querySelector(".discuss-submit");
+
+  formEl.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const body = textarea.value.trim();
+    if (!body) return;
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Posting…";
+
+    try {
+      const resp = await fetch("/api/comment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ article_id: article.doi, author_name: author.full_name, role: roleSelect.value, body }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || "Couldn't post comment.");
+
+      const resp2 = await fetch(`/api/comments?article_id=${encodeURIComponent(article.doi)}&author_name=${encodeURIComponent(author.full_name)}`);
+      const data2 = await resp2.json();
+      threadEl.innerHTML = renderDiscussThread(data2.comments || []);
+      wireDiscussForm(threadEl, article, author);
+    } catch (err) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Post";
+      threadEl.insertAdjacentHTML("beforeend", `<div class="manual-entry-error">${escapeHtml(err.message)}</div>`);
+    }
+  });
 }
 
 function showArticle(articleId) {
@@ -366,6 +476,12 @@ function showArticle(articleId) {
 
   const container = document.getElementById("author-rows");
   container.innerHTML = article.authors.map(au => renderAuthorRow(article, au)).join("");
+
+  article.authors.forEach(author => {
+    const row = Array.from(container.querySelectorAll(".author-row"))
+      .find(r => r.dataset.authorName === author.full_name);
+    if (row) wireDiscussToggle(row, article, author);
+  });
 
   container.querySelectorAll(".find-orcid-btn").forEach(button => {
     button.addEventListener("click", async () => {
@@ -385,6 +501,9 @@ function showArticle(articleId) {
             author.orcid = orcid;
             author.source = source;
             authorRow.outerHTML = renderAuthorRow(article, author);
+            const newRow = Array.from(container.querySelectorAll(".author-row"))
+              .find(r => r.dataset.authorName === author.full_name);
+            if (newRow) wireDiscussToggle(newRow, article, author);
             refreshSidebarProgress();
           },
         });
@@ -422,3 +541,41 @@ async function loadArticles() {
 }
 
 loadArticles();
+
+// ---------- Reset (for repeatable demos) ----------
+
+const resetBtn = document.getElementById("reset-btn");
+const resetHint = document.getElementById("reset-hint");
+let resetArmed = false;
+
+resetBtn.addEventListener("click", async () => {
+  if (!resetArmed) {
+    resetArmed = true;
+    resetBtn.textContent = "Click again to confirm";
+    resetBtn.classList.add("confirming");
+    resetHint.hidden = false;
+    resetHint.textContent = "This clears every confirmation, flag, and discussion thread. Can't be undone.";
+    setTimeout(() => {
+      // Auto-disarm after a few seconds so an accidental second click
+      // later doesn't trigger a reset the person forgot they'd armed.
+      resetArmed = false;
+      resetBtn.textContent = "Reset demo data";
+      resetBtn.classList.remove("confirming");
+      resetHint.hidden = true;
+    }, 4000);
+    return;
+  }
+
+  resetBtn.disabled = true;
+  resetBtn.textContent = "Resetting…";
+  try {
+    const resp = await fetch("/api/reset", { method: "POST" });
+    if (!resp.ok) throw new Error("Reset failed.");
+    location.reload();
+  } catch (err) {
+    resetBtn.disabled = false;
+    resetBtn.textContent = "Reset demo data";
+    resetHint.hidden = false;
+    resetHint.textContent = err.message;
+  }
+});

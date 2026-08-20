@@ -98,6 +98,25 @@ body {
   }
   .sidebar-title, .sidebar-divider { display: none; }
   .sidebar-item { flex-shrink: 0; width: auto; min-width: 180px; }
+  .sidebar-footer { flex-shrink: 0; }
+}
+
+.sidebar-footer {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--hairline);
+}
+.reset-btn {
+  width: 100%;
+  font-family: inherit; font-size: 0.8rem; font-weight: 600;
+  padding: 0.5rem 0.65rem; border-radius: 10px;
+  border: 1.5px dashed var(--hairline); background: none; color: var(--muted);
+  cursor: pointer; transition: all 0.2s var(--ease);
+}
+.reset-btn:hover { border-color: var(--low); color: var(--low); }
+.reset-btn.confirming { border-color: var(--low); color: var(--low); background: var(--low-soft); }
+.reset-hint {
+  font-size: 0.72rem; color: var(--muted); margin: 0.5rem 0 0; line-height: 1.4;
 }
 
 /* ---------- Hero ---------- */
@@ -460,6 +479,62 @@ h1 {
 .author-results { margin-top: 1rem; }
 .author-results .result-card { margin-bottom: 0.75rem; }
 .author-results .result-card:last-child { margin-bottom: 0; }
+
+/* ---------- Discussion thread (corresponding author <-> co-author) ---------- */
+.discuss-toggle {
+  font-family: inherit; font-size: 0.8rem; font-weight: 600;
+  padding: 0.4rem 0.75rem; border-radius: 999px;
+  border: 1.5px solid var(--hairline); background: #fff; color: var(--muted);
+  cursor: pointer; transition: all 0.2s var(--ease);
+  margin-top: 0.6rem;
+}
+.discuss-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+.discuss-thread {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px dashed var(--hairline);
+}
+.discuss-empty { font-size: 0.82rem; color: var(--faint); margin: 0 0 0.75rem; }
+.discuss-messages { display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 0.9rem; }
+.discuss-message {
+  background: #fff; border-radius: 12px; padding: 0.6rem 0.8rem;
+  font-size: 0.85rem; line-height: 1.5;
+}
+.discuss-message-meta {
+  display: flex; align-items: center; gap: 0.4rem;
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+  margin-bottom: 0.25rem;
+}
+.discuss-role-tag { padding: 0.05rem 0.4rem; border-radius: 999px; }
+.discuss-role-tag.corresponding { background: var(--accent-soft); color: var(--accent); }
+.discuss-role-tag.co-author { background: var(--high-soft); color: var(--high); }
+.discuss-role-tag.other { background: var(--hairline); color: var(--muted); }
+.discuss-time { color: var(--faint); font-weight: 400; text-transform: none; letter-spacing: 0; }
+
+.discuss-form { display: flex; flex-direction: column; gap: 0.5rem; }
+.discuss-form-row { display: flex; gap: 0.5rem; }
+.discuss-role-select {
+  font-family: inherit; font-size: 0.8rem;
+  padding: 0.5rem 0.6rem; border-radius: 10px;
+  border: 1.5px solid var(--hairline); background: #fff; color: var(--ink);
+}
+.discuss-textarea {
+  width: 100%; min-height: 3.2rem; resize: vertical;
+  font-family: inherit; font-size: 0.85rem;
+  padding: 0.55rem 0.7rem; border-radius: 10px;
+  border: 1.5px solid var(--hairline); background: #fff; color: var(--ink);
+}
+.discuss-textarea:focus, .discuss-role-select:focus { outline: none; border-color: var(--accent); }
+.discuss-submit {
+  align-self: flex-end;
+  font-family: inherit; font-size: 0.82rem; font-weight: 600;
+  padding: 0.5rem 0.95rem; border-radius: 999px;
+  border: none; background: var(--ink); color: #fff; cursor: pointer;
+  transition: background 0.2s var(--ease);
+}
+.discuss-submit:hover { background: #262629; }
+.discuss-submit:disabled { opacity: 0.5; cursor: progress; }
 
 .empty-state {
   text-align: center; padding: 2.5rem 1rem;

@@ -42,6 +42,16 @@ def _init_db():
                 created_at REAL NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS author_comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                article_id TEXT NOT NULL,
+                author_name TEXT NOT NULL,
+                role TEXT NOT NULL,                -- 'corresponding' | 'co-author' | 'other'
+                body TEXT NOT NULL,
+                created_at REAL NOT NULL
+            )
+        """)
         conn.commit()
 
 
@@ -120,6 +130,57 @@ def list_records(article_id: Optional[str] = None) -> list:
         else:
             cur = conn.execute("SELECT * FROM author_records ORDER BY created_at DESC")
         return [dict(r) for r in cur.fetchall()]
+
+
+VALID_ROLES = {"corresponding", "co-author", "other"}
+
+
+def add_comment(article_id: str, author_name: str, role: str, body: str) -> dict:
+    role = (role or "other").strip().lower()
+    if role not in VALID_ROLES:
+        role = "other"
+    body = (body or "").strip()
+    if not body:
+        raise ValueError("Comment can't be empty.")
+    if not article_id:
+        raise ValueError("A comment needs an article to attach to.")
+
+    row = {
+        "article_id": article_id,
+        "author_name": author_name,
+        "role": role,
+        "body": body,
+        "created_at": time.time(),
+    }
+    with _connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO author_comments (article_id, author_name, role, body, created_at) "
+            "VALUES (:article_id, :author_name, :role, :body, :created_at)",
+            row,
+        )
+        conn.commit()
+        row["id"] = cur.lastrowid
+    return row
+
+
+def list_comments(article_id: str, author_name: str) -> list:
+    with _connect() as conn:
+        cur = conn.execute(
+            "SELECT * FROM author_comments WHERE article_id = ? AND author_name = ? ORDER BY created_at ASC",
+            (article_id, author_name),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def reset_all() -> None:
+    """Wipes every confirmation, flag, and comment. Used by the demo
+    'Reset' control -- not gated by anything beyond the UI's confirm step,
+    since this app has no auth/user model. Don't expose this endpoint
+    publicly for a real deployment without adding access control."""
+    with _connect() as conn:
+        conn.execute("DELETE FROM author_records")
+        conn.execute("DELETE FROM author_comments")
+        conn.commit()
 
 
 _init_db()
