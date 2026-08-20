@@ -3,7 +3,7 @@ const statusEl = document.getElementById("status");
 const resultsEl = document.getElementById("results");
 const btn = document.getElementById("search-btn");
 
-const RING_RADIUS = 30;
+const RING_RADIUS = 24;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 function escapeHtml(str) {
@@ -30,35 +30,45 @@ function renderCandidate(c, index) {
   const supportingWorks = (c.supporting_works || []).map(renderWork).join("");
   const recentWorks = (c.recent_works || []).map(renderWork).join("");
 
-  // Ring starts empty (offset = full circumference) then animates to the
-  // real value once inserted, via a class toggle in attachRingAnimations().
+  // The single strongest evidence line shows by default; everything else
+  // (full evidence list, CrossRef corroboration, recent works) is one
+  // click away via <details> instead of always taking up space.
+  const topEvidence = (c.evidence && c.evidence[0]) || "";
+  const hasMoreDetail = (c.evidence && c.evidence.length > 1) || supportingWorks || recentWorks;
+
   const offset = RING_CIRCUMFERENCE - (c.score_pct / 100) * RING_CIRCUMFERENCE;
 
   return `
     <article class="result-card" data-orcid="${c.orcid_id}" data-offset="${offset}"
              style="animation-delay:${index * 70}ms">
       <div class="ring-wrap">
-        <svg viewBox="0 0 72 72">
-          <circle class="ring-track" cx="36" cy="36" r="${RING_RADIUS}"></circle>
-          <circle class="ring-fill ${c.confidence_key}" cx="36" cy="36" r="${RING_RADIUS}"
+        <svg viewBox="0 0 56 56">
+          <circle class="ring-track" cx="28" cy="28" r="${RING_RADIUS}"></circle>
+          <circle class="ring-fill ${c.confidence_key}" cx="28" cy="28" r="${RING_RADIUS}"
                   stroke-dasharray="${RING_CIRCUMFERENCE}" stroke-dashoffset="${RING_CIRCUMFERENCE}"></circle>
         </svg>
         <span class="ring-label">${c.score_pct}</span>
       </div>
       <div class="result-body">
-        <span class="result-tag ${c.confidence_key}">${c.confidence_label}</span>
-        <h2 class="result-name"><a href="${c.orcid_url}" target="_blank" rel="noopener">${escapeHtml(c.credit_name || "(name not public)")}</a></h2>
+        <div class="result-top-row">
+          <h2 class="result-name"><a href="${c.orcid_url}" target="_blank" rel="noopener">${escapeHtml(c.credit_name || "(name not public)")}</a></h2>
+          <span class="result-tag ${c.confidence_key}">${c.confidence_label}</span>
+        </div>
         <div class="result-orcid">${c.orcid_id}</div>
         ${institutions.length ? `<div class="result-line"><span class="label">Affiliation</span> ${escapeHtml(institutions.join("; "))}</div>` : ""}
         ${otherNames.length ? `<div class="result-line"><span class="label">Also known as</span> ${escapeHtml(otherNames.join("; "))}</div>` : ""}
+        ${topEvidence ? `<p class="top-evidence">${escapeHtml(topEvidence)}</p>` : ""}
 
-        <div class="evidence-block">
-          <span class="block-label">Why this score</span>
-          <ul class="evidence-list">${evidenceItems}</ul>
-        </div>
-
-        ${supportingWorks ? `<div class="evidence-block"><span class="block-label">CrossRef corroboration</span><ul class="works-list">${supportingWorks}</ul></div>` : ""}
-        ${recentWorks ? `<div class="evidence-block"><span class="block-label">Recent works</span><ul class="works-list">${recentWorks}</ul></div>` : ""}
+        ${hasMoreDetail ? `
+        <details class="evidence-toggle">
+          <summary>Show evidence</summary>
+          <div class="evidence-block">
+            <span class="block-label">Why this score</span>
+            <ul class="evidence-list">${evidenceItems}</ul>
+          </div>
+          ${supportingWorks ? `<div class="evidence-block"><span class="block-label">CrossRef corroboration</span><ul class="works-list">${supportingWorks}</ul></div>` : ""}
+          ${recentWorks ? `<div class="evidence-block"><span class="block-label">Recent works</span><ul class="works-list">${recentWorks}</ul></div>` : ""}
+        </details>` : ""}
 
         <div class="validate-row">
           <span class="validate-label">Is this you?</span>

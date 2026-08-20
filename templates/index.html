@@ -9,13 +9,8 @@
 <body>
   <main class="page">
     <header class="hero">
-      <div class="hero-mark">
-        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M9 12.5L11 14.5L15.5 9.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
       <h1>Find the right ORCID.</h1>
-      <p class="hero-sub">Search by name, cross-checked against real publication records — with the evidence to prove it.</p>
+      <p class="hero-sub">Cross-checked against real publication records, with the evidence to prove it.</p>
     </header>
 
     {% if not credentials_present %}
@@ -46,10 +41,7 @@
       <button type="submit" id="search-btn">Search</button>
     </form>
 
-    <p class="hint">
-      Most ORCID emails are private and won't match unless made public.
-      Review the evidence, then confirm the match yourself.
-    </p>
+    <p class="hint">Most ORCID emails are private — review the evidence and confirm the match yourself.</p>
 
     <section id="status" class="status" aria-live="polite"></section>
     <section id="results" class="results"></section>
