@@ -3,6 +3,9 @@ const statusEl = document.getElementById("status");
 const resultsEl = document.getElementById("results");
 const btn = document.getElementById("search-btn");
 
+const RING_RADIUS = 30;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str || "";
@@ -13,57 +16,78 @@ function renderWork(w) {
   const bits = [];
   if (w.journal) bits.push(escapeHtml(w.journal));
   if (w.year) bits.push(w.year);
-  const meta = bits.length ? ` &mdash; ${bits.join(", ")}` : "";
-  const link = w.doi ? `<a href="https://doi.org/${encodeURIComponent(w.doi)}" target="_blank" rel="noopener">${escapeHtml(w.title)}</a>` : escapeHtml(w.title);
+  const meta = bits.length ? ` — ${bits.join(", ")}` : "";
+  const link = w.doi
+    ? `<a href="https://doi.org/${encodeURIComponent(w.doi)}" target="_blank" rel="noopener">${escapeHtml(w.title)}</a>`
+    : escapeHtml(w.title);
   return `<li>${link}${meta}</li>`;
 }
 
-function renderCandidate(c, idx) {
+function renderCandidate(c, index) {
   const institutions = (c.institutions || []).filter(Boolean);
   const otherNames = (c.other_names || []).filter(Boolean);
-
   const evidenceItems = (c.evidence || []).map(e => `<li>${escapeHtml(e)}</li>`).join("");
   const supportingWorks = (c.supporting_works || []).map(renderWork).join("");
   const recentWorks = (c.recent_works || []).map(renderWork).join("");
 
+  // Ring starts empty (offset = full circumference) then animates to the
+  // real value once inserted, via a class toggle in attachRingAnimations().
+  const offset = RING_CIRCUMFERENCE - (c.score_pct / 100) * RING_CIRCUMFERENCE;
+
   return `
-    <article class="result-card" data-orcid="${c.orcid_id}">
-      <span class="result-tab ${c.confidence_key}">${c.confidence_label}</span>
-
-      <div class="score-row">
-        <div class="score-bar"><div class="score-fill ${c.confidence_key}" style="width:${c.score_pct}%"></div></div>
-        <span class="score-pct">${c.score_pct}%</span>
+    <article class="result-card" data-orcid="${c.orcid_id}" data-offset="${offset}"
+             style="animation-delay:${index * 70}ms">
+      <div class="ring-wrap">
+        <svg viewBox="0 0 72 72">
+          <circle class="ring-track" cx="36" cy="36" r="${RING_RADIUS}"></circle>
+          <circle class="ring-fill ${c.confidence_key}" cx="36" cy="36" r="${RING_RADIUS}"
+                  stroke-dasharray="${RING_CIRCUMFERENCE}" stroke-dashoffset="${RING_CIRCUMFERENCE}"></circle>
+        </svg>
+        <span class="ring-label">${c.score_pct}</span>
       </div>
+      <div class="result-body">
+        <span class="result-tag ${c.confidence_key}">${c.confidence_label}</span>
+        <h2 class="result-name"><a href="${c.orcid_url}" target="_blank" rel="noopener">${escapeHtml(c.credit_name || "(name not public)")}</a></h2>
+        <div class="result-orcid">${c.orcid_id}</div>
+        ${institutions.length ? `<div class="result-line"><span class="label">Affiliation</span> ${escapeHtml(institutions.join("; "))}</div>` : ""}
+        ${otherNames.length ? `<div class="result-line"><span class="label">Also known as</span> ${escapeHtml(otherNames.join("; "))}</div>` : ""}
 
-      <h2 class="result-name"><a href="${c.orcid_url}" target="_blank" rel="noopener">${escapeHtml(c.credit_name || "(name not public)")}</a></h2>
-      <div class="result-orcid">${c.orcid_id}</div>
-      ${institutions.length ? `<div class="result-line"><span class="label">Affiliation</span>${escapeHtml(institutions.join("; "))}</div>` : ""}
-      ${otherNames.length ? `<div class="result-line"><span class="label">Also known as</span>${escapeHtml(otherNames.join("; "))}</div>` : ""}
+        <div class="evidence-block">
+          <span class="block-label">Why this score</span>
+          <ul class="evidence-list">${evidenceItems}</ul>
+        </div>
 
-      <div class="evidence-block">
-        <div class="block-label">Why this score</div>
-        <ul class="evidence-list">${evidenceItems}</ul>
-      </div>
+        ${supportingWorks ? `<div class="evidence-block"><span class="block-label">CrossRef corroboration</span><ul class="works-list">${supportingWorks}</ul></div>` : ""}
+        ${recentWorks ? `<div class="evidence-block"><span class="block-label">Recent works</span><ul class="works-list">${recentWorks}</ul></div>` : ""}
 
-      ${supportingWorks ? `
-      <div class="evidence-block">
-        <div class="block-label">CrossRef corroboration</div>
-        <ul class="works-list">${supportingWorks}</ul>
-      </div>` : ""}
-
-      ${recentWorks ? `
-      <div class="evidence-block">
-        <div class="block-label">Recent works on this ORCID record</div>
-        <ul class="works-list">${recentWorks}</ul>
-      </div>` : ""}
-
-      <div class="validate-row">
-        <span class="validate-label">Is this you?</span>
-        <button type="button" class="validate-btn confirm" data-action="confirm">&#10003; This is me</button>
-        <button type="button" class="validate-btn reject" data-action="reject">&#10007; Not me</button>
+        <div class="validate-row">
+          <span class="validate-label">Is this you?</span>
+          <button type="button" class="validate-btn confirm" data-action="confirm">This is me</button>
+          <button type="button" class="validate-btn reject" data-action="reject">Not me</button>
+        </div>
       </div>
     </article>
   `;
+}
+
+function attachRingAnimations() {
+  // Two rAF ticks so the browser paints the ring at offset=full first,
+  // then transitions to the real value -- otherwise CSS collapses the
+  // "from" and "to" states into one frame and nothing animates.
+  // Wrapped defensively: this is purely cosmetic, so any failure here
+  // must never be allowed to look like a search failure to the caller.
+  try {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document.querySelectorAll(".result-card").forEach(card => {
+          const fill = card.querySelector(".ring-fill");
+          if (fill) fill.style.strokeDashoffset = card.dataset.offset;
+        });
+      });
+    });
+  } catch (err) {
+    // Rings just won't animate; scores are still shown as plain numbers.
+  }
 }
 
 function attachValidateHandlers() {
@@ -82,34 +106,37 @@ function attachValidateHandlers() {
 function renderResults(candidates, crossrefError) {
   let html = "";
   if (crossrefError) {
-    html += `<div class="crossref-warning">${escapeHtml(crossrefError)} &mdash; showing ORCID-only results.</div>`;
+    html += `<div class="notice">${escapeHtml(crossrefError)} — showing ORCID-only results.</div>`;
   }
   if (!candidates.length) {
-    html += `<div class="empty-state">No matching ORCID records found. Try fewer fields, or check spelling.</div>`;
+    html += `<div class="empty-state">No matching records found. Try fewer fields, or check spelling.</div>`;
   } else {
     html += candidates.map(renderCandidate).join("");
   }
   resultsEl.innerHTML = html;
+  attachRingAnimations();
   attachValidateHandlers();
+}
+
+function setStatus(text, isError) {
+  statusEl.className = isError ? "status error" : "status";
+  statusEl.innerHTML = text;
 }
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
-
   const given_name = document.getElementById("given_name").value.trim();
   const family_name = document.getElementById("family_name").value.trim();
   const email = document.getElementById("email").value.trim();
   const affiliation = document.getElementById("affiliation").value.trim();
 
   if (!given_name && !family_name) {
-    statusEl.textContent = "Enter at least a first or last name.";
-    statusEl.className = "status error";
+    setStatus("Enter at least a first or last name.", true);
     return;
   }
 
   btn.disabled = true;
-  statusEl.className = "status";
-  statusEl.textContent = "Searching ORCID and cross-checking against CrossRef…";
+  setStatus(`<span class="spinner"><span></span><span></span><span></span></span>Searching`);
   resultsEl.innerHTML = "";
 
   try {
@@ -121,16 +148,14 @@ form.addEventListener("submit", async (e) => {
     const data = await resp.json();
 
     if (!resp.ok) {
-      statusEl.className = "status error";
-      statusEl.textContent = data.error || "Search failed.";
+      setStatus(data.error || "Search failed.", true);
       return;
     }
 
-    statusEl.textContent = `${data.count} candidate${data.count === 1 ? "" : "s"} found`;
+    setStatus(`${data.count} candidate${data.count === 1 ? "" : "s"} found`);
     renderResults(data.candidates, data.crossref_error);
   } catch (err) {
-    statusEl.className = "status error";
-    statusEl.textContent = "Network error reaching the local server.";
+    setStatus("Network error reaching the server.", true);
   } finally {
     btn.disabled = false;
   }
