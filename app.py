@@ -24,10 +24,11 @@ the UI will show a setup notice and searches will return a clear error.
 from flask import Flask, jsonify, render_template, request
 
 from orcid_core import credentials_present
-from validator import build_candidates
+from validator import build_candidates, check_manual_orcid
 from records import (
     record_confirmation, record_flag, list_records, InvalidOrcidError,
     add_comment, list_comments, reset_all, mark_submitted, get_submission,
+    validate_orcid_format,
 )
 from sample_articles import ARTICLES
 
@@ -107,12 +108,15 @@ def api_confirm():
     orcid = (data.get("orcid") or "").strip()
     article_id = (data.get("article_id") or "").strip()
     source = (data.get("source") or "").strip()
+    consent_attested = bool(data.get("consent_attested"))
 
     if not author_name or not orcid:
         return jsonify({"error": "author_name and orcid are required."}), 400
+    if not consent_attested:
+        return jsonify({"error": "Please confirm you've checked this with the author before continuing."}), 400
 
     try:
-        row = record_confirmation(article_id, author_name, orcid, source)
+        row = record_confirmation(article_id, author_name, orcid, source, consent_attested=consent_attested)
     except InvalidOrcidError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -201,6 +205,28 @@ def api_submit():
 
     row = mark_submitted(article_id)
     return jsonify({"submission": row})
+
+
+@app.route("/api/verify-orcid", methods=["POST"])
+def api_verify_orcid():
+    """Sanity-checks a manually-entered ORCID against ORCID's registry and
+    CrossRef, before it gets flagged. A nudge, not a hard gate -- the
+    frontend decides how much friction a 'mismatch' verdict should add."""
+    data = request.get_json(silent=True) or {}
+    given_name = (data.get("given_name") or "").strip()
+    family_name = (data.get("family_name") or "").strip()
+    orcid = (data.get("orcid") or "").strip()
+    affiliation = (data.get("affiliation") or "").strip()
+
+    if not orcid:
+        return jsonify({"error": "orcid is required."}), 400
+    try:
+        orcid = validate_orcid_format(orcid)
+    except InvalidOrcidError as e:
+        return jsonify({"error": str(e)}), 400
+
+    result = check_manual_orcid(given_name, family_name, orcid, affiliation)
+    return jsonify(result)
 
 
 @app.route("/api/reset", methods=["POST"])

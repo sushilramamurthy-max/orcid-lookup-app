@@ -39,6 +39,8 @@ def _init_db():
                 status TEXT NOT NULL,              -- 'confirmed' | 'flagged'
                 source TEXT,                       -- e.g. 'CrossRef', 'ORCID registry', 'manual'
                 note TEXT,
+                consent_attested INTEGER NOT NULL DEFAULT 0,  -- 1 if the person confirming
+                                                               -- attested they checked with the author
                 created_at REAL NOT NULL
             )
         """)
@@ -83,7 +85,8 @@ def validate_orcid_format(orcid: str) -> str:
     return cleaned
 
 
-def record_confirmation(article_id: str, author_name: str, orcid: str, source: str) -> dict:
+def record_confirmation(article_id: str, author_name: str, orcid: str, source: str,
+                         consent_attested: bool = False) -> dict:
     orcid = validate_orcid_format(orcid)
     row = {
         "article_id": article_id or "",
@@ -92,12 +95,13 @@ def record_confirmation(article_id: str, author_name: str, orcid: str, source: s
         "status": "confirmed",
         "source": source or "unspecified",
         "note": None,
+        "consent_attested": 1 if consent_attested else 0,
         "created_at": time.time(),
     }
     with _connect() as conn:
         cur = conn.execute(
-            "INSERT INTO author_records (article_id, author_name, orcid, status, source, note, created_at) "
-            "VALUES (:article_id, :author_name, :orcid, :status, :source, :note, :created_at)",
+            "INSERT INTO author_records (article_id, author_name, orcid, status, source, note, consent_attested, created_at) "
+            "VALUES (:article_id, :author_name, :orcid, :status, :source, :note, :consent_attested, :created_at)",
             row,
         )
         conn.commit()

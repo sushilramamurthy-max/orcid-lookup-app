@@ -9,12 +9,14 @@ Authenticates with and queries the ORCID Public API:
 
 import os
 import time
+from typing import Optional
 
 import requests
 
 ORCID_TOKEN_URL = "https://orcid.org/oauth/token"
 ORCID_SEARCH_URL = "https://pub.orcid.org/v3.0/expanded-search"
 ORCID_WORKS_URL = "https://pub.orcid.org/v3.0/{orcid}/works"
+ORCID_PERSON_URL = "https://pub.orcid.org/v3.0/{orcid}/person"
 REQUEST_TIMEOUT = 15
 
 _token_cache = {"access_token": None, "expires_at": 0}
@@ -108,6 +110,39 @@ def search_people(given_name: str, family_name: str, email: str = "",
             "emails": hit.get("email", []) or [],
         })
     return results
+
+
+def get_person_name(orcid_id: str) -> Optional[dict]:
+    """
+    Looks up the name actually registered to a specific ORCID iD -- used to
+    sanity-check a manually-typed ORCID against who it really belongs to.
+    Returns {"given_name", "family_name", "credit_name"} or None if
+    unavailable (no credentials configured, the iD doesn't exist, or the
+    request fails). Absence of a result is NOT evidence of a mismatch --
+    callers should treat it as "couldn't verify," not "conflict."
+    """
+    try:
+        token = get_access_token()
+    except OrcidConfigError:
+        return None
+
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    url = ORCID_PERSON_URL.format(orcid=orcid_id)
+    try:
+        resp = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+    except (requests.RequestException, ValueError):
+        return None
+
+    name_block = data.get("name") or {}
+    given = ((name_block.get("given-names") or {}) or {}).get("value")
+    family = ((name_block.get("family-name") or {}) or {}).get("value")
+    credit = ((name_block.get("credit-name") or {}) or {}).get("value")
+    if not given and not family and not credit:
+        return None
+    return {"given_name": given, "family_name": family, "credit_name": credit}
 
 
 def get_recent_works(orcid_id: str, limit: int = 3) -> list:

@@ -262,3 +262,63 @@ def build_candidates(given_name: str, family_name: str, email: str = "",
             del _cache[oldest_key]
 
     return result
+
+
+def _names_roughly_match(given_a: str, family_a: str, given_b: str, family_b: str) -> bool:
+    """Family name must match; given name matches on full value or first
+    initial (loosely handles 'J.' vs 'James', or nicknames sharing an
+    initial). Absence of a given name to compare doesn't fail the match --
+    a matching family name with no given name to check is inconclusive,
+    not a conflict."""
+    fa = (family_a or "").strip().lower()
+    fb = (family_b or "").strip().lower()
+    if not fa or not fb or fa != fb:
+        return False
+    ga = (given_a or "").strip().lower()
+    gb = (given_b or "").strip().lower()
+    if not ga or not gb:
+        return True
+    return ga == gb or ga[0] == gb[0]
+
+
+def check_manual_orcid(given_name: str, family_name: str, orcid_id: str,
+                        affiliation: str = "", mailto: Optional[str] = None) -> dict:
+    """
+    Sanity-checks a manually-typed ORCID against two independent sources,
+    for the "Not a match -> enter it yourself" flow. Returns:
+      {"verdict": "match" | "mismatch" | "unverified",
+       "findings": [...human-readable strings...],
+       "registry_name": "Name on the ORCID record" | None}
+
+    This is a nudge, not a hard block -- a real person can have a nickname,
+    a maiden name, or simply not be in CrossRef yet, so "mismatch" is
+    surfaced as a warning to double-check, not treated as proof of error.
+    """
+    findings = []
+    verdict = "unverified"
+    registry_name = None
+
+    person = orcid_core.get_person_name(orcid_id)
+    if person:
+        registry_name = person.get("credit_name") or \
+            " ".join(filter(None, [person.get("given_name"), person.get("family_name")])).strip() or None
+        if _names_roughly_match(given_name, family_name, person.get("given_name"), person.get("family_name")):
+            findings.append(f'ORCID registry lists this iD under "{registry_name}", matching the name you entered it for.')
+            verdict = "match"
+        else:
+            findings.append(f'ORCID registry lists this iD under a different name: "{registry_name}".')
+            verdict = "mismatch"
+
+    try:
+        works = crossref_core.search_author_works(given_name, family_name, affiliation, mailto=mailto)
+        if any(w["matched_orcid"] == orcid_id for w in works):
+            findings.append("CrossRef also lists this ORCID on a publication matching this author's name.")
+            if verdict != "mismatch":
+                verdict = "match"
+    except Exception:
+        pass  # CrossRef being unreachable shouldn't block the nudge -- just skip this signal
+
+    if not findings:
+        findings.append("Couldn't find this ORCID on ORCID or CrossRef records for this name — proceed carefully.")
+
+    return {"verdict": verdict, "findings": findings, "registry_name": registry_name}

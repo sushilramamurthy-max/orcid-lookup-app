@@ -357,9 +357,20 @@ h1 {
 
 .validate-row {
   margin-top: 0.75rem;
-  display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+  display: flex; flex-direction: column; gap: 0.55rem;
 }
 .verify-result { margin-top: 0.75rem; }
+
+.consent-check {
+  display: flex; align-items: flex-start; gap: 0.5rem;
+  font-size: 0.82rem; color: var(--muted); line-height: 1.4;
+  cursor: pointer;
+}
+.consent-check input {
+  margin-top: 0.15rem; width: 15px; height: 15px; flex-shrink: 0;
+  accent-color: var(--accent);
+}
+.validate-buttons { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
 .validate-label { font-size: 0.78rem; font-weight: 600; color: var(--muted); margin-right: 0.15rem; }
 .validate-btn {
   font-family: inherit; font-size: 0.8rem; font-weight: 600;
@@ -368,6 +379,7 @@ h1 {
   cursor: pointer; transition: all 0.2s var(--ease);
 }
 .validate-btn:active { transform: scale(0.96); }
+.validate-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .validate-btn.confirm:hover, .validate-btn.confirm.active { background: var(--high-soft); border-color: var(--high); color: var(--high); }
 .validate-btn.reject:hover, .validate-btn.reject.active { background: var(--low-soft); border-color: var(--low); color: var(--low); }
 .result-card.state-confirmed { box-shadow: 0 0 0 2px var(--high); }
@@ -416,6 +428,20 @@ h1 {
 .manual-entry-error {
   font-size: 0.78rem; color: var(--low); margin-top: 0.4rem;
 }
+
+.verify-nudge {
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.verify-nudge strong { display: block; margin-bottom: 0.2rem; font-size: 0.8rem; }
+.verify-nudge ul { margin: 0; padding-left: 1.1rem; }
+.verify-nudge.checking { background: var(--surface); color: var(--muted); }
+.verify-nudge.match { background: var(--high-soft); color: var(--high); }
+.verify-nudge.mismatch { background: var(--low-soft); color: var(--low); }
+.verify-nudge.unverified { background: var(--surface); color: var(--muted); }
 
 /* ---------- Article / track-changes view ---------- */
 .article-header { text-align: left; margin-bottom: 0.5rem; opacity: 1; animation: none; }

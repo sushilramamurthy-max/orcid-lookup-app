@@ -35,7 +35,7 @@ async function runSearch(given_name, family_name, email, affiliation) {
 // ---------- Candidate card rendering (shared by both custom search and
 // per-author article search) ----------
 
-function renderCandidate(c, index) {
+function renderCandidate(c, index, targetAuthorName) {
   const institutions = (c.institutions || []).filter(Boolean);
   const otherNames = (c.other_names || []).filter(Boolean);
   const evidenceItems = (c.evidence || []).map(e => `<li>${escapeHtml(e)}</li>`).join("");
@@ -80,11 +80,16 @@ function renderCandidate(c, index) {
         </details>` : ""}
 
         <div class="validate-row" data-orcid="${c.orcid_id}"
-             data-name="${escapeHtml(c.credit_name || "")}"
+             data-name="${escapeHtml(targetAuthorName || c.credit_name || "")}"
              data-source="${source}">
-          <span class="validate-label">Is this you?</span>
-          <button type="button" class="validate-btn confirm" data-action="confirm">This is me</button>
-          <button type="button" class="validate-btn reject" data-action="reject">Not me</button>
+          <label class="consent-check">
+            <input type="checkbox" class="consent-checkbox">
+            I've checked with the author — this ORCID is correct.
+          </label>
+          <div class="validate-buttons">
+            <button type="button" class="validate-btn confirm" data-action="confirm" disabled>Confirm match</button>
+            <button type="button" class="validate-btn reject" data-action="reject">Not a match</button>
+          </div>
         </div>
       </div>
     </article>
@@ -130,10 +135,24 @@ function renderManualEntryForm() {
       <label class="manual-entry-label">Enter the correct ORCID iD</label>
       <div class="manual-entry-row">
         <input type="text" class="manual-orcid-input" placeholder="0000-0000-0000-0000" inputmode="numeric">
-        <button type="submit" class="manual-entry-submit">Flag for production</button>
+        <button type="submit" class="manual-entry-submit">Check &amp; flag</button>
       </div>
+      <div class="verify-nudge" hidden></div>
       <div class="manual-entry-error" hidden></div>
     </form>
+  `;
+}
+
+function renderNudge(result) {
+  const findingsList = (result.findings || []).map(f => `<li>${escapeHtml(f)}</li>`).join("");
+  const labels = {
+    match: "✓ Looks right",
+    mismatch: "⚠ Possible conflict",
+    unverified: "ℹ Couldn't verify",
+  };
+  return `
+    <strong>${labels[result.verdict] || "Checked"}</strong>
+    <ul>${findingsList}</ul>
   `;
 }
 
@@ -142,17 +161,29 @@ function renderManualEntryForm() {
  * `getArticleId` is called at click time (not render time) so it always
  * reflects the current value, whether that's a text field or a fixed
  * article DOI from the sidebar.
+ * `getAuthorDetails` returns {given_name, family_name, affiliation} for
+ * the target author, used to sanity-check a manually-typed ORCID against
+ * ORCID/CrossRef before flagging it.
  * `onResolved(status, orcid, source)` is an optional callback fired after
  * a successful confirm/flag, for callers that need to update something
  * outside the row itself (e.g. an author byline, a sidebar progress count).
  */
-function bindRow(row, { getArticleId, onResolved } = {}) {
+function bindRow(row, { getArticleId, onResolved, getAuthorDetails } = {}) {
   const orcid = row.dataset.orcid;
   const authorName = row.dataset.name;
   const source = row.dataset.source;
   const articleIdFn = getArticleId || (() => "");
+  const authorDetailsFn = getAuthorDetails || (() => ({ given_name: "", family_name: "", affiliation: "" }));
 
-  row.querySelector('[data-action="confirm"]').addEventListener("click", async () => {
+  const consentCheckbox = row.querySelector(".consent-checkbox");
+  const confirmBtn = row.querySelector('[data-action="confirm"]');
+  if (consentCheckbox && confirmBtn) {
+    consentCheckbox.addEventListener("change", () => {
+      confirmBtn.disabled = !consentCheckbox.checked;
+    });
+  }
+
+  confirmBtn.addEventListener("click", async () => {
     const articleId = articleIdFn();
     row.querySelectorAll(".validate-btn").forEach(b => b.disabled = true);
     const originalHtml = row.innerHTML;
@@ -162,7 +193,7 @@ function bindRow(row, { getArticleId, onResolved } = {}) {
       const resp = await fetch("/api/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ author_name: authorName, orcid, article_id: articleId, source }),
+        body: JSON.stringify({ author_name: authorName, orcid, article_id: articleId, source, consent_attested: true }),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || "Could not save confirmation.");
@@ -174,7 +205,7 @@ function bindRow(row, { getArticleId, onResolved } = {}) {
     } catch (err) {
       row.innerHTML = originalHtml;
       row.insertAdjacentHTML("beforeend", `<div class="manual-entry-error">${escapeHtml(err.message)}</div>`);
-      bindRow(row, { getArticleId, onResolved }); // rebind ONLY this row
+      bindRow(row, { getArticleId, onResolved, getAuthorDetails }); // rebind ONLY this row
     }
   });
 
@@ -183,23 +214,26 @@ function bindRow(row, { getArticleId, onResolved } = {}) {
     const manualForm = row.querySelector(".manual-entry");
     const input = row.querySelector(".manual-orcid-input");
     const errorEl = row.querySelector(".manual-entry-error");
+    const nudgeEl = row.querySelector(".verify-nudge");
+    const submitBtn = row.querySelector(".manual-entry-submit");
 
-    manualForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const typed = input.value.trim();
+    // Tracks whether the currently-displayed nudge still applies to what's
+    // in the input -- editing the ORCID after a check invalidates it, so
+    // we re-verify rather than let a stale "looks right" carry over.
+    let checkedValue = null;
+    let checkedVerdict = null;
 
-      if (!ORCID_FORMAT.test(typed)) {
-        errorEl.textContent = "Enter a valid ORCID iD, e.g. 0000-0001-5250-9122.";
-        errorEl.hidden = false;
-        return;
+    input.addEventListener("input", () => {
+      if (input.value.trim() !== checkedValue) {
+        nudgeEl.hidden = true;
+        submitBtn.textContent = "Check & flag";
       }
-      errorEl.hidden = true;
+    });
 
+    async function doFlag(typed) {
       const articleId = articleIdFn();
-      const submitBtn = row.querySelector(".manual-entry-submit");
       submitBtn.disabled = true;
       submitBtn.textContent = "Flagging…";
-
       try {
         const resp = await fetch("/api/flag", {
           method: "POST",
@@ -217,7 +251,66 @@ function bindRow(row, { getArticleId, onResolved } = {}) {
         errorEl.textContent = err.message;
         errorEl.hidden = false;
         submitBtn.disabled = false;
-        submitBtn.textContent = "Flag for production";
+        submitBtn.textContent = checkedVerdict === "mismatch" ? "Flag anyway" : "Check & flag";
+      }
+    }
+
+    manualForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const typed = input.value.trim();
+
+      if (!ORCID_FORMAT.test(typed)) {
+        errorEl.textContent = "Enter a valid ORCID iD, e.g. 0000-0001-5250-9122.";
+        errorEl.hidden = false;
+        nudgeEl.hidden = true;
+        return;
+      }
+      errorEl.hidden = true;
+
+      // Already checked this exact value -- this click is the deliberate
+      // "proceed despite the warning" confirmation, so flag for real now.
+      if (checkedValue === typed && checkedVerdict) {
+        doFlag(typed);
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Checking…";
+      nudgeEl.hidden = false;
+      nudgeEl.className = "verify-nudge checking";
+      nudgeEl.textContent = "Checking against ORCID and CrossRef…";
+
+      try {
+        const details = authorDetailsFn();
+        const resp = await fetch("/api/verify-orcid", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...details, orcid: typed }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || "Couldn't check this ORCID.");
+
+        checkedValue = typed;
+        checkedVerdict = data.verdict;
+        nudgeEl.className = `verify-nudge ${data.verdict}`;
+        nudgeEl.innerHTML = renderNudge(data);
+
+        if (data.verdict === "mismatch") {
+          // Don't flag automatically -- surface the conflict and require
+          // an explicit second click to proceed anyway.
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Flag anyway";
+        } else {
+          // match or unverified -- the nudge is informational, proceed
+          // straight to flagging rather than adding a redundant click.
+          await doFlag(typed);
+        }
+      } catch (err) {
+        nudgeEl.hidden = true;
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Check & flag";
+        errorEl.textContent = err.message;
+        errorEl.hidden = false;
       }
     });
   });
@@ -231,7 +324,7 @@ function renderCandidatesInto(container, candidates, crossrefError, bindOptions)
   if (!candidates.length) {
     html += `<div class="empty-state">No matching records found. Try fewer fields, or check spelling.</div>`;
   } else {
-    html += candidates.map(renderCandidate).join("");
+    html += candidates.map((c, i) => renderCandidate(c, i, bindOptions && bindOptions.authorName)).join("");
   }
   container.innerHTML = html;
   attachRingAnimations(container);
@@ -271,6 +364,12 @@ form.addEventListener("submit", async (e) => {
     setStatus(`${data.count} candidate${data.count === 1 ? "" : "s"} found`);
     renderCandidatesInto(resultsEl, data.candidates, data.crossref_error, {
       getArticleId: () => document.getElementById("article_id").value.trim(),
+      authorName: `${given_name} ${family_name}`.trim(),
+      getAuthorDetails: () => ({
+        given_name: document.getElementById("given_name").value.trim(),
+        family_name: document.getElementById("family_name").value.trim(),
+        affiliation: document.getElementById("affiliation").value.trim(),
+      }),
     });
   } catch (err) {
     setStatus(err.message || "Network error reaching the server.", true);
@@ -589,6 +688,12 @@ function showArticle(articleId) {
         const data = await runSearch(author.given_name, author.family_name, author.email, author.affiliation);
         renderCandidatesInto(resultsContainer, data.candidates, data.crossref_error, {
           getArticleId: () => article.doi,
+          authorName: author.full_name,
+          getAuthorDetails: () => ({
+            given_name: author.given_name,
+            family_name: author.family_name,
+            affiliation: author.affiliation,
+          }),
           onResolved: (status, orcid, source) => {
             author.status = status;
             author.orcid = orcid;
